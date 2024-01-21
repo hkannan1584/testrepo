@@ -1,0 +1,14 @@
+inputSet:
+  name: Build_hkannan1584_testrepo_1705798937985-push-trigger-input-set
+  identifier: Build_hkannan1584_testrepo_1705798937985pushtriggerinputset
+  orgIdentifier: default
+  projectIdentifier: testproj
+  pipeline:
+    identifier: Build_hkannan1584_testrepo_1705798937985
+    properties:
+      ci:
+        codebase:
+          build:
+            type: branch
+            spec:
+              branch: <+trigger.branch>
