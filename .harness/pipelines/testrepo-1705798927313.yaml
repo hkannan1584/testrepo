@@ -1,0 +1,33 @@
+pipeline:
+  identifier: Build_hkannan1584_testrepo_1705798937985
+  name: Build testrepo
+  orgIdentifier: default
+  projectIdentifier: testproj
+  properties:
+    ci:
+      codebase:
+        build: <+input>
+        connectorRef: account.Github
+        repoName: hkannan1584/testrepo
+  stages:
+    - stage:
+        identifier: build
+        name: build
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  identifier: echo
+                  name: echo
+                  spec:
+                    command: echo hello world
+                  timeout: ""
+                  type: Run
+          platform:
+            arch: Amd64
+            os: Linux
+          runtime:
+            spec: {}
+            type: Cloud
+        type: CI
