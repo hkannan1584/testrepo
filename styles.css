@@ -56,6 +56,12 @@ canvas {
   font-size: 13px;
 }
 
+.controls-left { display:flex; gap:12px; align-items:center; }
+.controls-right { display:flex; gap:10px; align-items:center; }
+.speed-control label { font-size: 13px; color: var(--muted); }
+.speed-control input[type="range"] { width:160px; }
+.speed-control #speedValue { font-weight:600; color: var(--accent); min-width:44px; text-align:right; }
+
 button {
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.04);

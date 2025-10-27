@@ -16,8 +16,15 @@
     <canvas id="game" width="900" height="520" tabindex="0"></canvas>
 
     <div class="footer">
-      <button id="resetBtn">Reset Scores</button>
-      <label><input id="soundToggle" type="checkbox" checked /> Sound</label>
+      <div class="controls-left">
+        <button id="resetBtn">Reset Scores</button>
+        <label><input id="soundToggle" type="checkbox" checked /> Sound</label>
+      </div>
+      <div class="controls-right speed-control">
+        <label for="speedRange">Ball speed</label>
+        <input id="speedRange" type="range" min="0.5" max="2" step="0.05" value="1" />
+        <span id="speedValue">1.00x</span>
+      </div>
     </div>
   </div>
 

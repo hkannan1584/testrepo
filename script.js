@@ -9,6 +9,8 @@
   const statusEl = document.getElementById('status');
   const resetBtn = document.getElementById('resetBtn');
   const soundToggle = document.getElementById('soundToggle');
+  const speedRange = document.getElementById('speedRange');
+  const speedValue = document.getElementById('speedValue');
 
   // Canvas scaling for crisp rendering on high-dpi screens
   function fitCanvas() {
@@ -29,7 +31,8 @@
 
   // Paddle specs
   const PADDLE_WIDTH = 12;
-  const PADDLE_HEIGHT = 100;
+  const RIGHT_PADDLE_HEIGHT = 100;
+  const LEFT_PADDLE_HEIGHT = RIGHT_PADDLE_HEIGHT * 2; // Player paddle is twice as long
   const PADDLE_MARGIN = 16;
   const PADDLE_SPEED = 5.5; // speed for keyboard movement
 
@@ -38,10 +41,12 @@
   const BALL_SPEED_START = 4.2;
   const BALL_SPEED_INC = 0.25;
   const MAX_BALL_SPEED = 12;
+  // UI-controlled speed multiplier (1.0 is normal)
+  let speedFactor = 1.0;
 
   // Game state
-  let leftPaddle = { x: PADDLE_MARGIN, y: (H - PADDLE_HEIGHT) / 2, vy: 0 };
-  let rightPaddle = { x: W - PADDLE_MARGIN - PADDLE_WIDTH, y: (H - PADDLE_HEIGHT) / 2, vy: 0 };
+  let leftPaddle = { x: PADDLE_MARGIN, y: (H - LEFT_PADDLE_HEIGHT) / 2, vy: 0 };
+  let rightPaddle = { x: W - PADDLE_MARGIN - PADDLE_WIDTH, y: (H - RIGHT_PADDLE_HEIGHT) / 2, vy: 0 };
   let ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, radius: BALL_RADIUS };
   let scores = { left: 0, right: 0 };
   let running = false;
@@ -81,7 +86,10 @@
     ball.x = W / 2;
     ball.y = H / 2;
     const angle = (Math.random() * 0.6 - 0.3); // slight random vertical component
-    const speed = BALL_SPEED_START + Math.min(hitCount * BALL_SPEED_INC, MAX_BALL_SPEED);
+    // Compute a start speed scaled by the UI multiplier and clamped to MAX_BALL_SPEED * factor
+    const base = BALL_SPEED_START + Math.min(hitCount * BALL_SPEED_INC, MAX_BALL_SPEED);
+    const maxScaled = MAX_BALL_SPEED * speedFactor;
+    const speed = Math.min(base * speedFactor, maxScaled);
     ball.vx = serveTo * speed * Math.cos(angle);
     ball.vy = speed * Math.sin(angle);
   }
@@ -115,15 +123,13 @@
     }
   });
 
-  // Mouse controls: move left paddle center to mouse Y within canvas coords
-  canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    mouseActive = true;
-    leftPaddle.y = Math.max(Math.min(y - PADDLE_HEIGHT / 2, H - PADDLE_HEIGHT), 0);
-  });
-
-  // If mouse leaves, don't keep it active for keyboard fallback
+    // Mouse controls: move left paddle center to mouse Y within canvas coords
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      mouseActive = true;
+      leftPaddle.y = Math.max(Math.min(y - LEFT_PADDLE_HEIGHT / 2, H - LEFT_PADDLE_HEIGHT), 0);
+    });  // If mouse leaves, don't keep it active for keyboard fallback
   canvas.addEventListener('mouseleave', () => mouseActive = false);
 
   // Click on canvas toggles start/pause and resumes audio context
@@ -145,6 +151,27 @@
   soundToggle.addEventListener('change', () => {
     audioEnabled = soundToggle.checked;
   });
+
+  // Speed control: update multiplier and scale current ball velocity immediately
+  if (speedRange && speedValue) {
+    // initialize display
+    speedValue.textContent = parseFloat(speedRange.value).toFixed(2) + 'x';
+    speedRange.addEventListener('input', (e) => {
+      const newFactor = parseFloat(e.target.value);
+      const oldFactor = speedFactor;
+      if (newFactor <= 0 || oldFactor <= 0) {
+        speedFactor = newFactor || 1.0;
+        speedValue.textContent = speedFactor.toFixed(2) + 'x';
+        return;
+      }
+      // scale existing ball velocity so change is immediate
+      const ratio = newFactor / oldFactor;
+      ball.vx *= ratio;
+      ball.vy *= ratio;
+      speedFactor = newFactor;
+      speedValue.textContent = speedFactor.toFixed(2) + 'x';
+    });
+  }
 
   // Helper: rectangle-circle collision (ball with paddle)
   function ballHitsPaddle(ball, paddle) {
@@ -180,14 +207,12 @@
     const dt = Math.min((now - lastTime) / 16.6667, 4); // frame-normalized (approx 60fps baseline)
     lastTime = now;
 
-    // Keyboard paddle movement only when mouse has not been recently used
-    if (!mouseActive) {
-      if (keyState.ArrowUp) leftPaddle.y -= PADDLE_SPEED * dt * 1.6;
-      if (keyState.ArrowDown) leftPaddle.y += PADDLE_SPEED * dt * 1.6;
-      leftPaddle.y = Math.max(0, Math.min(H - PADDLE_HEIGHT, leftPaddle.y));
-    }
-
-    // AI update
+      // Keyboard paddle movement only when mouse has not been recently used
+      if (!mouseActive) {
+        if (keyState.ArrowUp) leftPaddle.y -= PADDLE_SPEED * dt * 1.6;
+        if (keyState.ArrowDown) leftPaddle.y += PADDLE_SPEED * dt * 1.6;
+        leftPaddle.y = Math.max(0, Math.min(H - LEFT_PADDLE_HEIGHT, leftPaddle.y));
+      }    // AI update
     aiUpdate();
 
     // Move ball
@@ -216,11 +241,13 @@
       const rel = (ball.y - (leftPaddle.y + PADDLE_HEIGHT / 2)) / (PADDLE_HEIGHT / 2);
       ball.vy += rel * 3;
       // increase speed slightly
-      const sign = Math.sign(ball.vx);
-      const speed = Math.min(Math.hypot(ball.vx, ball.vy) + BALL_SPEED_INC, MAX_BALL_SPEED);
       const ang = Math.atan2(ball.vy, ball.vx);
-      ball.vx = Math.cos(ang) * speed;
-      ball.vy = Math.sin(ang) * speed;
+      // increase speed but honor UI multiplier and scaled max
+      const currentSpeed = Math.hypot(ball.vx, ball.vy);
+      const maxScaled = MAX_BALL_SPEED * speedFactor;
+      const newSpeed = Math.min(currentSpeed + BALL_SPEED_INC, maxScaled);
+      ball.vx = Math.cos(ang) * newSpeed;
+      ball.vy = Math.sin(ang) * newSpeed;
       hitCount++;
       beep(1600, 0.04, 'sine', 0.04);
     }
@@ -231,10 +258,12 @@
       ball.vx = -ball.vx;
       const rel = (ball.y - (rightPaddle.y + PADDLE_HEIGHT / 2)) / (PADDLE_HEIGHT / 2);
       ball.vy += rel * 3;
-      const speed = Math.min(Math.hypot(ball.vx, ball.vy) + BALL_SPEED_INC, MAX_BALL_SPEED);
       const ang = Math.atan2(ball.vy, ball.vx);
-      ball.vx = Math.cos(ang) * speed;
-      ball.vy = Math.sin(ang) * speed;
+      const currentSpeed = Math.hypot(ball.vx, ball.vy);
+      const maxScaled = MAX_BALL_SPEED * speedFactor;
+      const newSpeed = Math.min(currentSpeed + BALL_SPEED_INC, maxScaled);
+      ball.vx = Math.cos(ang) * newSpeed;
+      ball.vy = Math.sin(ang) * newSpeed;
       hitCount++;
       beep(1200, 0.04, 'sine', 0.04);
     }
@@ -287,9 +316,9 @@
 
     // paddles
     ctx.fillStyle = 'rgba(22,163,74,0.9)';
-    roundRect(ctx, leftPaddle.x, leftPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT, 4, true, false);
+    roundRect(ctx, leftPaddle.x, leftPaddle.y, PADDLE_WIDTH, LEFT_PADDLE_HEIGHT, 4, true, false);
     ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    roundRect(ctx, rightPaddle.x, rightPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT, 4, true, false);
+    roundRect(ctx, rightPaddle.x, rightPaddle.y, PADDLE_WIDTH, RIGHT_PADDLE_HEIGHT, 4, true, false);
 
     // ball
     ctx.beginPath();
