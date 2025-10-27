@@ -29,11 +29,12 @@
   const W = canvas.clientWidth;
   const H = canvas.clientHeight;
 
-  // Paddle specs
-  const PADDLE_WIDTH = 12;
-  const RIGHT_PADDLE_HEIGHT = 100;
-  const LEFT_PADDLE_HEIGHT = RIGHT_PADDLE_HEIGHT * 2; // Player paddle is twice as long
-  const PADDLE_MARGIN = 16;
+  // Paddle specs (realistic ping pong paddle with circular head and handle)
+  const RIGHT_PADDLE_RADIUS = 40; // Radius of circular paddle head
+  const LEFT_PADDLE_RADIUS = RIGHT_PADDLE_RADIUS * 1.5; // Player paddle is bigger
+  const PADDLE_HANDLE_LENGTH = 35;
+  const PADDLE_HANDLE_WIDTH = 8;
+  const PADDLE_MARGIN = 60; // Distance from edge to paddle head center
   const PADDLE_SPEED = 5.5; // speed for keyboard movement
 
   // Ball specs
@@ -44,9 +45,9 @@
   // UI-controlled speed multiplier (1.0 is normal)
   let speedFactor = 1.0;
 
-  // Game state
-  let leftPaddle = { x: PADDLE_MARGIN, y: (H - LEFT_PADDLE_HEIGHT) / 2, vy: 0 };
-  let rightPaddle = { x: W - PADDLE_MARGIN - PADDLE_WIDTH, y: (H - RIGHT_PADDLE_HEIGHT) / 2, vy: 0 };
+  // Game state (x, y now represent center of circular paddle head)
+  let leftPaddle = { x: PADDLE_MARGIN, y: H / 2, vy: 0, radius: LEFT_PADDLE_RADIUS };
+  let rightPaddle = { x: W - PADDLE_MARGIN, y: H / 2, vy: 0, radius: RIGHT_PADDLE_RADIUS };
   let ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, radius: BALL_RADIUS };
   let scores = { left: 0, right: 0 };
   let running = false;
@@ -123,12 +124,13 @@
     }
   });
 
-    // Mouse controls: move left paddle center to mouse Y within canvas coords
+    // Mouse controls: move left paddle head center to mouse Y within canvas coords
     canvas.addEventListener('mousemove', (e) => {
       const rect = canvas.getBoundingClientRect();
       const y = e.clientY - rect.top;
       mouseActive = true;
-      leftPaddle.y = Math.max(Math.min(y - LEFT_PADDLE_HEIGHT / 2, H - LEFT_PADDLE_HEIGHT), 0);
+      // Clamp paddle head center so it stays within canvas bounds
+      leftPaddle.y = Math.max(LEFT_PADDLE_RADIUS, Math.min(y, H - LEFT_PADDLE_RADIUS));
     });  // If mouse leaves, don't keep it active for keyboard fallback
   canvas.addEventListener('mouseleave', () => mouseActive = false);
 
@@ -173,21 +175,20 @@
     });
   }
 
-  // Helper: rectangle-circle collision (ball with paddle)
+  // Helper: circle-to-circle collision (ball with circular paddle head)
   function ballHitsPaddle(ball, paddle) {
-    const nearestX = Math.max(paddle.x, Math.min(ball.x, paddle.x + PADDLE_WIDTH));
-    const nearestY = Math.max(paddle.y, Math.min(ball.y, paddle.y + PADDLE_HEIGHT));
-    const dx = ball.x - nearestX;
-    const dy = ball.y - nearestY;
-    return (dx * dx + dy * dy) <= (ball.radius * ball.radius);
+    const dx = ball.x - paddle.x;
+    const dy = ball.y - paddle.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    return distance <= (ball.radius + paddle.radius);
   }
 
   // Computer AI: simple predictive follow with limited speed and a small chance of error
   function aiUpdate() {
     // Desired center to track: lead slightly toward predicted ball position
     const leadFactor = 0.10 + Math.min(hitCount * 0.007, 0.18);
-    // Predict simple vertical target
-    let targetY = ball.y - PADDLE_HEIGHT / 2 + ball.vy * 8 * leadFactor;
+    // Predict simple vertical target (now tracking paddle head center)
+    let targetY = ball.y + ball.vy * 8 * leadFactor;
     // Add small randomness for human-like mistakes (scales with hitCount)
     const error = (Math.random() - 0.5) * 18 * (1 - Math.min(hitCount / 20, 0.6));
     targetY += error;
@@ -197,8 +198,8 @@
     if (Math.abs(dy) > 0.5) {
       rightPaddle.y += Math.sign(dy) * Math.min(Math.abs(dy), maxMove);
     }
-    // Clamp
-    rightPaddle.y = Math.max(0, Math.min(H - PADDLE_HEIGHT, rightPaddle.y));
+    // Clamp paddle head center within bounds
+    rightPaddle.y = Math.max(RIGHT_PADDLE_RADIUS, Math.min(H - RIGHT_PADDLE_RADIUS, rightPaddle.y));
   }
 
   // Main game loop
@@ -211,7 +212,7 @@
       if (!mouseActive) {
         if (keyState.ArrowUp) leftPaddle.y -= PADDLE_SPEED * dt * 1.6;
         if (keyState.ArrowDown) leftPaddle.y += PADDLE_SPEED * dt * 1.6;
-        leftPaddle.y = Math.max(0, Math.min(H - LEFT_PADDLE_HEIGHT, leftPaddle.y));
+        leftPaddle.y = Math.max(LEFT_PADDLE_RADIUS, Math.min(H - LEFT_PADDLE_RADIUS, leftPaddle.y));
       }    // AI update
     aiUpdate();
 
@@ -233,37 +234,66 @@
     // Paddle collisions
     // Left paddle
     if (ball.vx < 0 && ballHitsPaddle(ball, leftPaddle)) {
-      // place ball outside to avoid sticking
-      ball.x = leftPaddle.x + PADDLE_WIDTH + ball.radius + 0.5;
-      // reflect
-      ball.vx = -ball.vx;
-      // change vertical speed based on hit position
-      const rel = (ball.y - (leftPaddle.y + PADDLE_HEIGHT / 2)) / (PADDLE_HEIGHT / 2);
-      ball.vy += rel * 3;
-      // increase speed slightly
-      const ang = Math.atan2(ball.vy, ball.vx);
-      // increase speed but honor UI multiplier and scaled max
+      // Calculate collision normal (from paddle center to ball center)
+      const dx = ball.x - leftPaddle.x;
+      const dy = ball.y - leftPaddle.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const nx = dx / dist;
+      const ny = dy / dist;
+
+      // Place ball outside paddle to avoid sticking
+      ball.x = leftPaddle.x + nx * (leftPaddle.radius + ball.radius + 0.5);
+      ball.y = leftPaddle.y + ny * (leftPaddle.radius + ball.radius + 0.5);
+
+      // Reflect velocity off the collision normal
+      const dotProduct = ball.vx * nx + ball.vy * ny;
+      ball.vx = ball.vx - 2 * dotProduct * nx;
+      ball.vy = ball.vy - 2 * dotProduct * ny;
+
+      // Add spin based on impact position (vertical offset from center)
+      ball.vy += ny * 2;
+
+      // Increase speed slightly
       const currentSpeed = Math.hypot(ball.vx, ball.vy);
       const maxScaled = MAX_BALL_SPEED * speedFactor;
       const newSpeed = Math.min(currentSpeed + BALL_SPEED_INC, maxScaled);
-      ball.vx = Math.cos(ang) * newSpeed;
-      ball.vy = Math.sin(ang) * newSpeed;
+      const speedRatio = newSpeed / currentSpeed;
+      ball.vx *= speedRatio;
+      ball.vy *= speedRatio;
+
       hitCount++;
       beep(1600, 0.04, 'sine', 0.04);
     }
 
     // Right paddle
     if (ball.vx > 0 && ballHitsPaddle(ball, rightPaddle)) {
-      ball.x = rightPaddle.x - ball.radius - 0.5;
-      ball.vx = -ball.vx;
-      const rel = (ball.y - (rightPaddle.y + PADDLE_HEIGHT / 2)) / (PADDLE_HEIGHT / 2);
-      ball.vy += rel * 3;
-      const ang = Math.atan2(ball.vy, ball.vx);
+      // Calculate collision normal (from paddle center to ball center)
+      const dx = ball.x - rightPaddle.x;
+      const dy = ball.y - rightPaddle.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const nx = dx / dist;
+      const ny = dy / dist;
+
+      // Place ball outside paddle to avoid sticking
+      ball.x = rightPaddle.x + nx * (rightPaddle.radius + ball.radius + 0.5);
+      ball.y = rightPaddle.y + ny * (rightPaddle.radius + ball.radius + 0.5);
+
+      // Reflect velocity off the collision normal
+      const dotProduct = ball.vx * nx + ball.vy * ny;
+      ball.vx = ball.vx - 2 * dotProduct * nx;
+      ball.vy = ball.vy - 2 * dotProduct * ny;
+
+      // Add spin based on impact position (vertical offset from center)
+      ball.vy += ny * 2;
+
+      // Increase speed slightly
       const currentSpeed = Math.hypot(ball.vx, ball.vy);
       const maxScaled = MAX_BALL_SPEED * speedFactor;
       const newSpeed = Math.min(currentSpeed + BALL_SPEED_INC, maxScaled);
-      ball.vx = Math.cos(ang) * newSpeed;
-      ball.vy = Math.sin(ang) * newSpeed;
+      const speedRatio = newSpeed / currentSpeed;
+      ball.vx *= speedRatio;
+      ball.vy *= speedRatio;
+
       hitCount++;
       beep(1200, 0.04, 'sine', 0.04);
     }
@@ -298,6 +328,46 @@
     requestAnimationFrame(loop);
   }
 
+  // Draw a realistic ping pong paddle with circular head and handle
+  function drawPaddle(paddle, isLeft, color) {
+    ctx.save();
+
+    // Handle extends from paddle head toward center of screen
+    const handleDir = isLeft ? 1 : -1;
+    const handleEndX = paddle.x + handleDir * PADDLE_HANDLE_LENGTH;
+
+    // Draw handle
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = PADDLE_HANDLE_WIDTH;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(paddle.x, paddle.y);
+    ctx.lineTo(handleEndX, paddle.y);
+    ctx.stroke();
+
+    // Draw circular paddle head
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(paddle.x, paddle.y, paddle.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Add a darker rubber surface on the paddle face
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.arc(paddle.x, paddle.y, paddle.radius - 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Add edge highlight
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(paddle.x, paddle.y, paddle.radius - 1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
   // Drawing routine
   function draw() {
     // Clear background
@@ -315,10 +385,8 @@
     ctx.restore();
 
     // paddles
-    ctx.fillStyle = 'rgba(22,163,74,0.9)';
-    roundRect(ctx, leftPaddle.x, leftPaddle.y, PADDLE_WIDTH, LEFT_PADDLE_HEIGHT, 4, true, false);
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    roundRect(ctx, rightPaddle.x, rightPaddle.y, PADDLE_WIDTH, RIGHT_PADDLE_HEIGHT, 4, true, false);
+    drawPaddle(leftPaddle, true, 'rgba(22,163,74,0.9)');
+    drawPaddle(rightPaddle, false, 'rgba(220,38,38,0.9)');
 
     // ball
     ctx.beginPath();
@@ -369,11 +437,11 @@
       if (!mouseActive) {
         if (keyState.ArrowUp) {
           leftPaddle.y -= PADDLE_SPEED;
-          leftPaddle.y = Math.max(0, leftPaddle.y);
+          leftPaddle.y = Math.max(LEFT_PADDLE_RADIUS, leftPaddle.y);
         }
         if (keyState.ArrowDown) {
           leftPaddle.y += PADDLE_SPEED;
-          leftPaddle.y = Math.min(H - PADDLE_HEIGHT, leftPaddle.y);
+          leftPaddle.y = Math.min(H - LEFT_PADDLE_RADIUS, leftPaddle.y);
         }
       }
       draw();
